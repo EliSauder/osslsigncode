@@ -126,11 +126,11 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            os: macos-14
+            os: macos-latest
             triplet: arm64-osx
             osx_arch: arm64
           - arch: amd64
-            os: macos-13
+            os: macos-26-intel
             triplet: x64-osx
             osx_arch: x86_64
     runs-on: ${{ matrix.os }}
@@ -205,8 +205,22 @@ jobs:
   # self-contained .exe (no vcredist / no third-party DLLs).
   # --------------------------------------------------------------------------
   windows:
-    name: windows-x64
-    runs-on: windows-2022
+    name: windows
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: windows-11-arm
+            triplet: arm64-windows-static
+            vs_arch: arm64
+            win_arch: arm64
+          - arch: amd64
+            os: windows-latest
+            triplet: x64-windows-static
+            vs_arch: amd64
+            win_arch: x64
+    runs-on: ${{matrix.os}}
     env:
       VCPKG_ROOT: C:/vcpkg
     steps:
@@ -219,7 +233,7 @@ jobs:
       - name: Configure Visual Studio
         uses: step-security/msvc-dev-cmd@v1
         with:
-          arch: x64
+          arch: ${{matrix.vs_arch}}
 
       - uses: actions/setup-python@v6
         with:
@@ -232,8 +246,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: C:/Users/runneradmin/AppData/Local/vcpkg/archives
-          key: release-x64-windows-static-${{ hashFiles('vcpkg.json') }}
-          restore-keys: release-x64-windows-static-
+          key: release-${{matrix.triplet}}-windows-static-${{ hashFiles('vcpkg.json') }}
+          restore-keys: release-${{matrix.triplet}}-windows-static-
 
       - name: Configure
         run: |
@@ -241,7 +255,9 @@ jobs:
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET="x64-windows-static" `
+            -DVCPKG_TARGET_ARCHITECTURE="${{matrix.win_arch}}" `
+            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" `
+            -DZLIB_USE_STATIC_LIBS=TRUE `
             -DOPENSSL_USE_STATIC_LIBS=TRUE
 
       - name: Build
@@ -254,7 +270,7 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          asset="osslsigncode-${VERSION}-windows-x64"
+          asset="osslsigncode-${VERSION}-windows-${{matrix.arch}}"
           mkdir -p "stage/${asset}"
           cp build/osslsigncode.exe "stage/${asset}/"
           cp COPYING "stage/${asset}/" 2>/dev/null || true
@@ -263,7 +279,7 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: dist-windows-x64
+          name: dist-windows-${{matrix.arch}}
           path: osslsigncode-*-windows-*.zip
           if-no-files-found: error
 
