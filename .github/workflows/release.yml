@@ -30,7 +30,6 @@ on:
 env:
   BUILD_TYPE: Release
   OPENSSL_VERSION: "3.5.7"
-  OPENSSL_PREFIX: /opt/openssl-static
 
 permissions:
   contents: read
@@ -50,26 +49,46 @@ jobs:
         include:
           - arch: amd64
             os: ubuntu-24.04
-            openssl_arch: x86_64
+            py_arch: x64
           - arch: arm64
             os: ubuntu-24.04-arm
+            py_arch: arm64
     runs-on: ${{ matrix.os }}
     container: alpine:3.20
+    env:
+      OPENSSL_PREFIX: /opt/openssl-static
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: laverdet/alpine-arm64@v1
         if: matrix.arch == 'arm64'
 
-      - name: Install OpenSSL build toolchain
+      - name: Install system packages
+        # First step runs before bash exists in the container, so use sh.
         shell: sh
-        run: apk add --no-cache build-base perl make linux-headers wget tar
+        run: |
+          apk add --update --no-cache \
+            git bash build-base cmake ninja \
+            python3 py3-pip openssl \
+            openssl-dev openssl-libs-static \
+            curl-dev curl-static wget tar perl \
+            zlib-dev zlib-static linux-headers \
+            nghttp2-static brotli-static zstd-static \
+            libidn2-static c-ares-static libpsl-static libunistring-static
+          ln -sf python3 /usr/bin/python
 
       - name: Restore cached OpenSSL
         id: cache-openssl
         uses: actions/cache@v4
         with:
           path: ${{ env.OPENSSL_PREFIX }}
-          # Deterministic: depends only on inputs that change the artifact.
           key: openssl-${{ env.OPENSSL_VERSION }}-nomodule-static-${{ matrix.arch }}-alpine3.20
+
+      - name: Validate Python Setup
+        run: |
+          pip install --break-system-packages --upgrade 'cryptography>=43,<46'
+          python -c "import sys; print(sys.executable)"
+          python --version
+          python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - name: Build OpenSSL (static, no-module, legacy built-in)
         if: steps.cache-openssl.outputs.cache-hit != 'true'
@@ -89,31 +108,22 @@ jobs:
           make -j"$(nproc)"
           make install_sw   # install_sw skips man pages -> faster
 
-      - name: Install toolchain + static libraries
-        # First step runs before bash exists in the container, so use sh.
-        shell: sh
-        run: |
-          apk add --no-cache \
-            git bash build-base cmake ninja \
-            python3 py3-cryptography \
-            curl-dev curl-static \
-            zlib-dev zlib-static \
-            nghttp2-static brotli-static zstd-static \
-            libidn2-static c-ares-static libpsl-static libunistring-static
-          # NOTE: the curl-transitive *-static set above may need tuning per
-          # Alpine version; the "verify static" step below is the safety net.
-
       - uses: actions/checkout@v5
 
       - name: Resolve version
         run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
+      - name: Validate Python Setup
+        run: |
+          python -c "import sys; print(sys.executable)"
+          python --version
+          python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
+
       - name: Configure
         run: |
-          cmake -G Ninja -S "$GITHUB_WORKSPACE" -B build \
+          cmake -G 'Unix Makefiles' -S "$GITHUB_WORKSPACE" -B build \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
-            -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
             -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_USE_STATIC_LIBS=TRUE \
@@ -134,22 +144,20 @@ jobs:
           fi
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Dump test server logs on failure
-        if: always() # run even though the Test step failed the job
-        shell: bash
+        working-directory: build
         run: |
-          echo "===== CTest LastTest.log ====="
-          cat build/Testing/Temporary/LastTest.log || true
+          ctest --output-on-failure -C "$BUILD_TYPE"
 
-          echo "===== Any server / TSA logs under build/Testing ====="
-          # The harness writes server output here; names vary by version.
-          find build/Testing -type f \( -name '*.log' -o -name '*server*' -o -name '*.out' \) \
-            -print -exec echo '--- {} ---' \; -exec cat {} \; 2>/dev/null || true
-
-          echo "===== Python / cryptography versions (harness deps) ====="
-          python3 -c 'import sys, cryptography; print(sys.version); print("cryptography", cryptography.__version__)' || truearget_link_options(${target} PRIVATE /CETCOMPAT)
+      - name: Upload the errors
+        uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: errors-${{matrix.os}}
+          path: |
+            ${{github.workspace}}/build/Testing/Temporary/LastTest.log
+            ${{github.workspace}}/build/Testing/conf/makecerts.log
+            ${{github.workspace}}/build/Testing/logs/server.log
+            ${{github.workspace}}/build/Testing/logs/port.log
 
       - name: Package
         run: |
@@ -177,31 +185,75 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            os: macos-latest
+            os: macos-26
             triplet: arm64-osx
             osx_arch: arm64
+            py_arch: arm64
           - arch: amd64
             os: macos-26-intel
             triplet: x64-osx
             osx_arch: x86_64
+            py_arch: x64
     runs-on: ${{ matrix.os }}
     env:
       VCPKG_ROOT: /usr/local/share/vcpkg
-      VCPKG_FORCE_DOWNLOADED_BINARIES: "1" # ignore Homebrew cmake; use vcpkg's pinned 3.x
+      ZLIB_VERSION: 1.3.1
+      ZLIB_PREFIX: /tmp/zlibinstall
     steps:
+      - name: Restore cached ZLib
+        id: cache-zlib
+        uses: actions/cache@v4
+        with:
+          path: "${{env.ZLIB_PREFIX}}"
+          key: zlib-${{ env.ZLIB_VERSION }}-static-${{ matrix.arch }}-macos
+
+      - name: Build ZLib
+        if: steps.cache-zlib.outputs.cache-hit != 'true'
+        shell: sh
+        run: |
+          set -eux
+          cd /tmp
+          wget -O zlib.tar.gz \
+            "https://github.com/madler/zlib/releases/download/v${ZLIB_VERSION}/zlib-${ZLIB_VERSION}.tar.gz"
+          tar xf zlib.tar.gz
+          cd "zlib-${ZLIB_VERSION}"
+          # ./config auto-detects amd64 vs arm64, so it works for both matrix rows.
+          # no-module => legacy provider is compiled into libcrypto.a (no dlopen).
+          CFLAGS="-arch ${{ matrix.osx_arch }}" ./configure --static --prefix="${{env.ZLIB_PREFIX}}"
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+
       - uses: actions/checkout@v5
 
       - name: Resolve version
         run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
+      - name: Install Xcode (macOS)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup the oldest supported version of cmake (macOS)
+        uses: jwlawson/actions-setup-cmake@v2.2.0
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+          update-environment: false
+          architecture: ${{matrix.py_arch}}
+
+      - name: Set up Python virtual environment
+        run: |
+          python -m venv --system-site-packages --copies venv
 
       - name: Install test dependency (cryptography)
         run: |
+          source venv/bin/activate
           python -m pip install --upgrade pip
           ARCHFLAGS="-arch ${{ matrix.osx_arch }}" python -m pip install --upgrade cryptography
+          python -c "import sys; print(sys.executable)"
+          python --version
+          python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - name: Cache vcpkg archives
         uses: actions/cache@v5
@@ -212,18 +264,21 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -G "Unix Makefiles" -S "$GITHUB_WORKSPACE" -B build \
+          source venv/bin/activate
+          cmake -G "Unix Makefiles" -S "${{github.workspace}}" -B "${{github.workspace}}/build" \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
-            -DVCPKG_INSTALL_OPTIONS="--x-abi-tools-use-exact-versions" \
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.osx_arch }}" \
+            -DZLIB_ROOT="${{env.ZLIB_PREFIX}}" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
             -DOPENSSL_USE_STATIC_LIBS=TRUE
 
+        #-DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
+        #-DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+
       - name: Build
-        run: cmake --build build --config "$BUILD_TYPE"
+        run: |
+          cmake --build "${{github.workspace}}/build" --config "$BUILD_TYPE"
 
       - name: Verify no third-party dylibs are linked
         run: |
@@ -236,7 +291,21 @@ jobs:
           strip -S "$bin" || true
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        working-directory: build
+        run: |
+          source ../venv/bin/activate
+          ctest --output-on-failure -C "$BUILD_TYPE"
+
+      - name: Upload the errors
+        uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: errors-${{matrix.os}}
+          path: |
+            ${{github.workspace}}/build/Testing/Temporary/LastTest.log
+            ${{github.workspace}}/build/Testing/conf/makecerts.log
+            ${{github.workspace}}/build/Testing/logs/server.log
+            ${{github.workspace}}/build/Testing/logs/port.log
 
       - name: Package
         run: |
@@ -293,8 +362,19 @@ jobs:
           python-version: '3.13'
           architecture: x64
 
+      - name: Set up Python virtual environment
+        run: |
+          python -m venv --system-site-packages --copies venv
+
       - name: Install test dependency (cryptography)
-        run: python -m pip install --upgrade pip cryptography
+        run: |
+          .\venv\Scripts\Activate.ps1
+          python -m ensurepip
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip cryptography
+          python.exe -c "import sys; print(sys.executable)"
+          python.exe --version
+          python.exe -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - name: Cache vcpkg archives
         uses: actions/cache@v5
@@ -305,6 +385,7 @@ jobs:
 
       - name: Configure
         run: |
+          .\venv\Scripts\Activate.ps1
           cmake -G Ninja -S "${{ github.workspace }}" -B build `
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" `
@@ -319,7 +400,20 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
+        run: |
+          ..\venv\Scripts\Activate.ps1
+          ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
+
+      - name: Upload the errors
+        uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: errors-${{matrix.os}}
+          path: |
+            ${{github.workspace}}/build/Testing/Temporary/LastTest.log
+            ${{github.workspace}}/build/Testing/conf/makecerts.log
+            ${{github.workspace}}/build/Testing/logs/server.log
+            ${{github.workspace}}/build/Testing/logs/port.log
 
       - name: Package
         shell: bash
