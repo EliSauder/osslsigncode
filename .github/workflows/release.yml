@@ -29,6 +29,8 @@ on:
 
 env:
   BUILD_TYPE: Release
+  OPENSSL_VERSION: "3.5.7"
+  OPENSSL_PREFIX: /opt/openssl-static
 
 permissions:
   contents: read
@@ -48,11 +50,45 @@ jobs:
         include:
           - arch: amd64
             os: ubuntu-24.04
+            openssl_arch: x86_64
           - arch: arm64
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
     container: alpine:3.20
     steps:
+      - uses: laverdet/alpine-arm64@v1
+        if: matrix.arch == 'arm64'
+
+      - name: Install OpenSSL build toolchain
+        shell: sh
+        run: apk add --no-cache build-base perl make linux-headers wget tar
+
+      - name: Restore cached OpenSSL
+        id: cache-openssl
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPENSSL_PREFIX }}
+          # Deterministic: depends only on inputs that change the artifact.
+          key: openssl-${{ env.OPENSSL_VERSION }}-nomodule-static-${{ matrix.arch }}-alpine3.20
+
+      - name: Build OpenSSL (static, no-module, legacy built-in)
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
+        shell: sh
+        run: |
+          set -eux
+          cd /tmp
+          wget -O openssl.tar.gz \
+            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+          tar xf openssl.tar.gz
+          cd "openssl-${OPENSSL_VERSION}"
+          # ./config auto-detects amd64 vs arm64, so it works for both matrix rows.
+          # no-module => legacy provider is compiled into libcrypto.a (no dlopen).
+          ./config \
+            no-shared no-module no-tests enable-legacy \
+            --prefix="${OPENSSL_PREFIX}" --openssldir="${OPENSSL_PREFIX}/ssl"
+          make -j"$(nproc)"
+          make install_sw   # install_sw skips man pages -> faster
+
       - name: Install toolchain + static libraries
         # First step runs before bash exists in the container, so use sh.
         shell: sh
@@ -60,7 +96,6 @@ jobs:
           apk add --no-cache \
             git bash build-base cmake ninja \
             python3 py3-cryptography \
-            openssl-dev openssl-libs-static \
             curl-dev curl-static \
             zlib-dev zlib-static \
             nghttp2-static brotli-static zstd-static \
@@ -80,6 +115,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
             -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
+            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_USE_STATIC_LIBS=TRUE \
             -DCURL_USE_STATIC_LIBS=TRUE \
             -DCMAKE_EXE_LINKER_FLAGS="-static -s"
