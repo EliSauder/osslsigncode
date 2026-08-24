@@ -136,6 +136,21 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      - name: Dump test server logs on failure
+        if: always() # run even though the Test step failed the job
+        shell: bash
+        run: |
+          echo "===== CTest LastTest.log ====="
+          cat build/Testing/Temporary/LastTest.log || true
+
+          echo "===== Any server / TSA logs under build/Testing ====="
+          # The harness writes server output here; names vary by version.
+          find build/Testing -type f \( -name '*.log' -o -name '*server*' -o -name '*.out' \) \
+            -print -exec echo '--- {} ---' \; -exec cat {} \; 2>/dev/null || true
+
+          echo "===== Python / cryptography versions (harness deps) ====="
+          python3 -c 'import sys, cryptography; print(sys.version); print("cryptography", cryptography.__version__)' || truearget_link_options(${target} PRIVATE /CETCOMPAT)
+
       - name: Package
         run: |
           asset="osslsigncode-${VERSION}-linux-${{ matrix.arch }}"
