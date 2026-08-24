@@ -187,6 +187,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VCPKG_ROOT: /usr/local/share/vcpkg
+      VCPKG_FORCE_DOWNLOADED_BINARIES: "1" # ignore Homebrew cmake; use vcpkg's pinned 3.x
     steps:
       - uses: actions/checkout@v5
 
