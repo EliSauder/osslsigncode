@@ -76,12 +76,12 @@ jobs:
             libidn2-static c-ares-static libpsl-static libunistring-static
           ln -sf python3 /usr/bin/python
 
-      - name: Restore cached OpenSSL
-        id: cache-openssl
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.OPENSSL_PREFIX }}
-          key: openssl-${{ env.OPENSSL_VERSION }}-nomodule-static-${{ matrix.arch }}-alpine3.20
+      #- name: Restore cached OpenSSL
+      #  id: cache-openssl
+      #  uses: actions/cache@v4
+      #  with:
+      #    path: ${{ env.OPENSSL_PREFIX }}
+      #    key: openssl-${{ env.OPENSSL_VERSION }}-nomodule-static-${{ matrix.arch }}-alpine3.20
 
       - name: Validate Python Setup
         run: |
@@ -90,23 +90,23 @@ jobs:
           python --version
           python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
-      - name: Build OpenSSL (static, no-module, legacy built-in)
-        if: steps.cache-openssl.outputs.cache-hit != 'true'
-        shell: sh
-        run: |
-          set -eux
-          cd /tmp
-          wget -O openssl.tar.gz \
-            "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
-          tar xf openssl.tar.gz
-          cd "openssl-${OPENSSL_VERSION}"
-          # ./config auto-detects amd64 vs arm64, so it works for both matrix rows.
-          # no-module => legacy provider is compiled into libcrypto.a (no dlopen).
-          ./config \
-            no-shared no-module no-tests enable-legacy \
-            --prefix="${OPENSSL_PREFIX}" --openssldir="${OPENSSL_PREFIX}/ssl"
-          make -j"$(nproc)"
-          make install_sw   # install_sw skips man pages -> faster
+      #- name: Build OpenSSL (static, no-module, legacy built-in)
+      #  if: steps.cache-openssl.outputs.cache-hit != 'true'
+      #  shell: sh
+      #  run: |
+      #    set -eux
+      #    cd /tmp
+      #    wget -O openssl.tar.gz \
+      #      "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+      #    tar xf openssl.tar.gz
+      #    cd "openssl-${OPENSSL_VERSION}"
+      #    # ./config auto-detects amd64 vs arm64, so it works for both matrix rows.
+      #    # no-module => legacy provider is compiled into libcrypto.a (no dlopen).
+      #    ./config \
+      #      no-shared no-module no-tests enable-legacy \
+      #      --prefix="${OPENSSL_PREFIX}" --openssldir="${OPENSSL_PREFIX}/ssl"
+      #    make -j"$(nproc)"
+      #    make install_sw   # install_sw skips man pages -> faster
 
       - uses: actions/checkout@v5
 
@@ -125,10 +125,10 @@ jobs:
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
-            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
             -DOPENSSL_USE_STATIC_LIBS=TRUE \
             -DCURL_USE_STATIC_LIBS=TRUE \
             -DCMAKE_EXE_LINKER_FLAGS="-static -s"
+        #-DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}" \
 
       - name: Build
         run: cmake --build build
