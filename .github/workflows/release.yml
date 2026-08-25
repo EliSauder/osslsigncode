@@ -77,6 +77,9 @@ jobs:
           python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - name: Resolve version
         run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
@@ -185,6 +188,9 @@ jobs:
           make install
 
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - name: Resolve version
         run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
@@ -308,6 +314,9 @@ jobs:
       VCPKG_ROOT: C:/vcpkg
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - name: Resolve version
         shell: bash
