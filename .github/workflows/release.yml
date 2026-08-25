@@ -317,6 +317,31 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
+      - name: Checkout patch (from workflow ref)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }} # the release branch/ref, has the patch
+          sparse-checkout: .github/workflows/patches
+          sparse-checkout-cone-mode: false
+          path: ci-patches
+
+      - name: Apply CETCOMPAT arch guard (ARM64 only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Skip if the tag already contains the fix
+          if grep -qE 'MSVC_C_ARCHITECTURE_ID MATCHES' cmake/SetCompilerFlags.cmake;  then
+            echo "Fix already present; nothing to patch."
+            exit 0
+          fi
+          if git apply --3way --check ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch 2>/dev/null; then
+            git apply --3way ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch
+            echo "Patch applied cleanly."
+          else
+            echo "Context mismatch on this tag; falling back to in-place guard."
+            perl -0pi -e 's{(\s*)target_link_options\(\$\{target\} PRIVATE /CETCOMPAT\)}{$1if(MSVC_C_ARCHITECTURE_ID MATCHES "^(X86|x64|AMD64)\$")\n$1 target_link_options(\$\{target\} PRIVATE /CETCOMPAT)\n$1endif()}g' cmake/SetCompilerFlags.cmake
+          fi
+          git --no-pager diff -- cmake/SetCompilerFlags.cmake || true
 
       - name: Resolve version
         shell: bash
