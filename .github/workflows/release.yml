@@ -65,7 +65,7 @@ jobs:
             git bash build-base cmake ninja \
             python3 py3-cryptography py3-pip openssl \
             openssl-dev openssl-libs-static \
-            curl-dev curl-static wget tar perl \
+            wget tar perl \
             zlib-dev zlib-static linux-headers \
             nghttp2-static brotli-static zstd-static \
             libidn2-static c-ares-static libpsl-static libunistring-static
@@ -91,7 +91,6 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
             -DOPENSSL_USE_STATIC_LIBS=TRUE \
-            -DCURL_USE_STATIC_LIBS=TRUE \
             -DCMAKE_EXE_LINKER_FLAGS="-static -s"
 
       - name: Build
@@ -251,7 +250,7 @@ jobs:
         run: |
           bin="build/osslsigncode"
           otool -L "$bin"
-          if otool -L "$bin" | grep -Ei 'vcpkg|Cellar|libssl|libcrypto|libcurl'; then
+          if otool -L "$bin" | grep -Ei 'vcpkg|Cellar|libssl|libcrypto'; then
             echo "::error::binary links a non-system dylib"
             exit 1
           fi
