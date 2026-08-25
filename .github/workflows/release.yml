@@ -235,6 +235,7 @@ jobs:
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.osx_arch }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
             -DZLIB_ROOT="${{env.ZLIB_PREFIX}}" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
             -DOPENSSL_USE_STATIC_LIBS=TRUE
