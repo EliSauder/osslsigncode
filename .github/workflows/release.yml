@@ -43,7 +43,7 @@ jobs:
   linux:
     name: linux-${{ matrix.arch }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - arch: amd64
@@ -145,7 +145,7 @@ jobs:
   macos:
     name: macos-${{ matrix.arch }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - arch: arm64
@@ -294,9 +294,9 @@ jobs:
   # self-contained .exe (no vcredist / no third-party DLLs).
   # --------------------------------------------------------------------------
   windows:
-    name: windows
+    name: windows-${{matrix.arch}}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - arch: arm64
