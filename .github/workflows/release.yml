@@ -1,18 +1,15 @@
 name: Release
 
-# Build portable, release-grade binaries for every supported architecture on a
+# Build portable, release binaries for every supported architecture on a
 # version tag, then attach them (plus a SHA256SUMS.txt for pinning) to the
 # GitHub release.
 #
 #   Linux   -> fully-static musl binaries (zero shared-lib deps), built in
 #              Alpine on native amd64 and arm64 runners.
-#   macOS   -> arm64 + x86_64, third-party libs (OpenSSL/curl/zlib) linked
+#   macOS   -> arm64 + x86_64, third-party libs (OpenSSL/zlib) linked
 #              statically via vcpkg; only system libs remain dynamic.
-#   Windows -> x64 static (MSVC static CRT + static deps) -> single self
+#   Windows -> arm64 + x64 static (MSVC static CRT + static deps) -> single self
 #              contained .exe.
-#
-# The Linux artifacts are what a hermetic Bazel `ctx.download` repo rule wants:
-# a self-contained binary that runs anywhere, verified with a pinned sha256.
 
 on:
   push:
@@ -36,9 +33,7 @@ permissions:
 jobs:
   # --------------------------------------------------------------------------
   # Linux: fully-static musl binaries. Alpine is the canonical place static
-  # linking of OpenSSL + curl + zlib "just works", because musl has no NSS
-  # dlopen machinery -- so getaddrinfo() for timestamp/CRL servers still works
-  # in a 100% static binary (unlike static glibc).
+  # linking of OpenSSL + zlib
   # --------------------------------------------------------------------------
   linux:
     name: linux-${{ matrix.arch }}
@@ -55,8 +50,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     container: alpine:3.20
     steps:
+      # Handle github actions shenanigans on linux alpine arm
       - uses: laverdet/alpine-arm64@v1
         if: matrix.arch == 'arm64'
+
+      # Get the version currently being built
+      - name: Resolve version
+        run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - name: Install system packages
         shell: sh
@@ -70,19 +70,19 @@ jobs:
             nghttp2-static brotli-static zstd-static \
             libidn2-static c-ares-static libpsl-static libunistring-static
 
+      # Ensure the cryptography package is available
       - name: Validate Python Setup
         run: |
           python -c "import sys; print(sys.executable)"
           python --version
           python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
+      # Checkout the specific tag/reference the run is targeting (for back
+      # porting).
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
-
-      - name: Resolve version
-        run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
 
       - name: Configure
         run: |
@@ -162,14 +162,19 @@ jobs:
       VCPKG_ROOT: /usr/local/share/vcpkg
       ZLIB_VERSION: 1.3.1
       ZLIB_PREFIX: /tmp/zlibinstall
+      MIN_MACOS_VERSION: "14.0"
     steps:
+      - name: Resolve version
+        run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
+
+      # Macos doesn't have a static zlib build available (at least I couldn't
+      # figure out how to get one), so build and cache it.
       - name: Restore cached ZLib
         id: cache-zlib
         uses: actions/cache@v4
         with:
           path: "${{env.ZLIB_PREFIX}}"
           key: zlib-${{ env.ZLIB_VERSION }}-static-${{ matrix.arch }}-macos
-
       - name: Build ZLib
         if: steps.cache-zlib.outputs.cache-hit != 'true'
         shell: sh
@@ -186,19 +191,14 @@ jobs:
           make -j"$(sysctl -n hw.ncpu)"
           make install
 
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
-          fetch-depth: 0
-
-      - name: Resolve version
-        run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
-
+      # Setup xcode build environment
       - name: Install Xcode (macOS)
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
 
+      # By default cmake 4.0+ is used. However, this project targets a min
+      # version of 3.17.
       - name: Setup the oldest supported version of cmake (macOS)
         uses: jwlawson/actions-setup-cmake@v2.2.0
 
@@ -228,6 +228,13 @@ jobs:
           key: release-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: release-${{ matrix.triplet }}-
 
+      # Checkout the specific tag/reference the run is targeting (for back
+      # porting).
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
       - name: Configure
         run: |
           source venv/bin/activate
@@ -235,13 +242,10 @@ jobs:
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.osx_arch }}" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="14.0" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${{env.MIN_MACOS_VERSION}}" \
             -DZLIB_ROOT="${{env.ZLIB_PREFIX}}" \
             -DZLIB_USE_STATIC_LIBS=TRUE \
             -DOPENSSL_USE_STATIC_LIBS=TRUE
-
-        #-DVCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
-        #-DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
 
       - name: Build
         run: |
@@ -290,7 +294,7 @@ jobs:
           if-no-files-found: error
 
   # --------------------------------------------------------------------------
-  # Windows: x64, MSVC static triplet -> static CRT + static deps -> a single
+  # Windows: x64 + arm64, MSVC static triplet -> static CRT + static deps -> a single
   # self-contained .exe (no vcredist / no third-party DLLs).
   # --------------------------------------------------------------------------
   windows:
@@ -313,36 +317,6 @@ jobs:
     env:
       VCPKG_ROOT: C:/vcpkg
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
-          fetch-depth: 0
-      - name: Checkout patch (from workflow ref)
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.ref }} # the release branch/ref, has the patch
-          sparse-checkout: .github/workflows/patches
-          sparse-checkout-cone-mode: false
-          path: ci-patches
-
-      - name: Apply CETCOMPAT arch guard (ARM64 only)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Skip if the tag already contains the fix
-          if grep -qE 'MSVC_C_ARCHITECTURE_ID MATCHES' cmake/SetCompilerFlags.cmake;  then
-            echo "Fix already present; nothing to patch."
-            exit 0
-          fi
-          if git apply --3way --check ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch 2>/dev/null; then
-            git apply --3way ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch
-            echo "Patch applied cleanly."
-          else
-            echo "Context mismatch on this tag; falling back to in-place guard."
-            perl -0pi -e 's{(\s*)target_link_options\(\$\{target\} PRIVATE /CETCOMPAT\)}{$1if(MSVC_C_ARCHITECTURE_ID MATCHES "^(X86|x64|AMD64)\$")\n$1 target_link_options(\$\{target\} PRIVATE /CETCOMPAT)\n$1endif()}g' cmake/SetCompilerFlags.cmake
-          fi
-          git --no-pager diff -- cmake/SetCompilerFlags.cmake || true
-
       - name: Resolve version
         shell: bash
         run: echo "VERSION=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_ENV"
@@ -352,15 +326,14 @@ jobs:
         with:
           arch: ${{matrix.vs_arch}}
 
+      # Python setup
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           architecture: x64
-
       - name: Set up Python virtual environment
         run: |
           python -m venv --system-site-packages --copies venv
-
       - name: Install test dependency (cryptography)
         run: |
           .\venv\Scripts\Activate.ps1
@@ -377,6 +350,40 @@ jobs:
           path: C:/Users/runneradmin/AppData/Local/vcpkg/archives
           key: release-${{matrix.triplet}}-windows-static-${{ hashFiles('vcpkg.json') }}
           restore-keys: release-${{matrix.triplet}}-windows-static-
+
+      # Checkout the specific tag/reference the run is targeting (for back
+      # porting).
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      # Handle the CETCOMPAT patch for older versions to support building
+      # past tags.
+      - name: Checkout patch (from workflow ref)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }} # the release branch/ref, has the patch
+          sparse-checkout: .github/workflows/patches
+          sparse-checkout-cone-mode: false
+          path: ci-patches
+      - name: Apply CETCOMPAT arch guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Skip if the tag already contains the fix
+          if grep -qE 'MSVC_C_ARCHITECTURE_ID MATCHES' cmake/SetCompilerFlags.cmake;  then
+            echo "Fix already present; nothing to patch."
+            exit 0
+          fi
+          if git apply --3way --check ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch 2>/dev/null; then
+            git apply --3way ci-patches/.github/workflows/patches/cetcompat-arch-guard.patch
+            echo "Patch applied cleanly."
+          else
+            echo "Context mismatch on this tag; falling back to in-place guard."
+            perl -0pi -e 's{(\s*)target_link_options\(\$\{target\} PRIVATE /CETCOMPAT\)}{$1if(MSVC_C_ARCHITECTURE_ID MATCHES "^(X86|x64|AMD64)\$")\n$1 target_link_options(\$\{target\} PRIVATE /CETCOMPAT)\n$1endif()}g' cmake/SetCompilerFlags.cmake
+          fi
+          git --no-pager diff -- cmake/SetCompilerFlags.cmake || true
 
       - name: Configure
         run: |
