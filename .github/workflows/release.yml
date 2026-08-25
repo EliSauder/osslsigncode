@@ -79,7 +79,7 @@ jobs:
 
       # Checkout the specific tag/reference the run is targeting (for back
       # porting).
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
@@ -112,7 +112,7 @@ jobs:
           ctest --output-on-failure -C "$BUILD_TYPE"
 
       - name: Upload the errors
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: errors-${{matrix.os}}
@@ -130,7 +130,7 @@ jobs:
           tar -C stage -czf "${asset}.tar.gz" "${asset}"
           sha256sum "${asset}.tar.gz"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-linux-${{ matrix.arch }}
           path: osslsigncode-*-linux-*.tar.gz
@@ -171,7 +171,7 @@ jobs:
       # figure out how to get one), so build and cache it.
       - name: Restore cached ZLib
         id: cache-zlib
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: "${{env.ZLIB_PREFIX}}"
           key: zlib-${{ env.ZLIB_VERSION }}-static-${{ matrix.arch }}-macos
@@ -200,9 +200,9 @@ jobs:
       # By default cmake 4.0+ is used. However, this project targets a min
       # version of 3.17.
       - name: Setup the oldest supported version of cmake (macOS)
-        uses: jwlawson/actions-setup-cmake@v2.2.0
+        uses: jwlawson/actions-setup-cmake@v2
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           update-environment: false
@@ -222,7 +222,7 @@ jobs:
           python -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - name: Cache vcpkg archives
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: /Users/runner/.cache/vcpkg/archives
           key: release-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json') }}
@@ -230,7 +230,7 @@ jobs:
 
       # Checkout the specific tag/reference the run is targeting (for back
       # porting).
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
@@ -268,7 +268,7 @@ jobs:
           ctest --output-on-failure -C "$BUILD_TYPE"
 
       - name: Upload the errors
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: errors-${{matrix.os}}
@@ -287,7 +287,7 @@ jobs:
           (cd stage && zip -r "../${asset}.zip" "${asset}")
           shasum -a 256 "${asset}.zip"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-macos-${{ matrix.arch }}
           path: osslsigncode-*-macos-*.zip
@@ -327,7 +327,7 @@ jobs:
           arch: ${{matrix.vs_arch}}
 
       # Python setup
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
           architecture: x64
@@ -345,7 +345,7 @@ jobs:
           python.exe -c "import cryptography; print(f'Python3 cryptography version {cryptography.__version__}')"
 
       - name: Cache vcpkg archives
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: C:/Users/runneradmin/AppData/Local/vcpkg/archives
           key: release-${{matrix.triplet}}-windows-static-${{ hashFiles('vcpkg.json') }}
@@ -353,7 +353,7 @@ jobs:
 
       # Checkout the specific tag/reference the run is targeting (for back
       # porting).
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
           fetch-depth: 0
@@ -361,7 +361,7 @@ jobs:
       # Handle the CETCOMPAT patch for older versions to support building
       # past tags.
       - name: Checkout patch (from workflow ref)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }} # the release branch/ref, has the patch
           sparse-checkout: .github/workflows/patches
@@ -407,7 +407,7 @@ jobs:
           ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
 
       - name: Upload the errors
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: errors-${{matrix.os}}
@@ -427,7 +427,7 @@ jobs:
           (cd stage && 7z a -tzip "../${asset}.zip" "${asset}")
           sha256sum "${asset}.zip"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-windows-${{matrix.arch}}
           path: osslsigncode-*-windows-*.zip
@@ -443,7 +443,7 @@ jobs:
       contents: write   # required to create/modify the release
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -456,7 +456,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Create / update the GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
