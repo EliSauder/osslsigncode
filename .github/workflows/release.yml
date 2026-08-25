@@ -205,16 +205,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-          update-environment: false
           architecture: ${{matrix.py_arch}}
-
-      - name: Set up Python virtual environment
-        run: |
-          python -m venv --system-site-packages --copies venv
 
       - name: Install test dependency (cryptography)
         run: |
-          source venv/bin/activate
           python -m pip install --upgrade pip
           ARCHFLAGS="-arch ${{ matrix.osx_arch }}" python -m pip install --upgrade cryptography
           python -c "import sys; print(sys.executable)"
@@ -237,7 +231,6 @@ jobs:
 
       - name: Configure
         run: |
-          source venv/bin/activate
           cmake -G "Unix Makefiles" -S "${{github.workspace}}" -B "${{github.workspace}}/build" \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/dist" \
@@ -264,7 +257,6 @@ jobs:
       - name: Test
         working-directory: build
         run: |
-          source ../venv/bin/activate
           ctest --output-on-failure -C "$BUILD_TYPE"
 
       - name: Upload the errors
@@ -331,12 +323,8 @@ jobs:
         with:
           python-version: '3.13'
           architecture: x64
-      - name: Set up Python virtual environment
-        run: |
-          python -m venv --system-site-packages --copies venv
       - name: Install test dependency (cryptography)
         run: |
-          .\venv\Scripts\Activate.ps1
           python -m ensurepip
           python -m pip install --upgrade pip
           python -m pip install --upgrade pip cryptography
@@ -387,7 +375,6 @@ jobs:
 
       - name: Configure
         run: |
-          .\venv\Scripts\Activate.ps1
           cmake -G Ninja -S "${{ github.workspace }}" -B build `
             -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" `
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" `
@@ -403,7 +390,6 @@ jobs:
       - name: Test
         working-directory: build
         run: |
-          ..\venv\Scripts\Activate.ps1
           ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
 
       - name: Upload the errors
